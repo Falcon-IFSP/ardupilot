@@ -793,7 +793,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
                               (alt, home_distance, home))
 
             # our post-condition is that we are disarmed:
-            if not self.armed():
+            if not self.armed(cached=True):
                 if home == "":
                     raise NotAchievedException("Did not get home")
                 # success!
@@ -2919,6 +2919,11 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.mav.mav.command_ack_send(0, 1)
         self.wait_statustext("Calibration successful")
 
+        # we don't anchor the vehicle when we do this test.  If we
+        # don't reboot then we end up smacking into the ground in the
+        # next test...
+        self.reboot_sitl()
+
     def MagFail(self):
         '''test failover of compass in EKF'''
         # we want both EK2 and EK3
@@ -3730,7 +3735,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
 
         self.set_analog_rangefinder_parameters()
         self.set_parameters({
-            "WPNAV_RFND_USE": 1,
+            "WP_RFND_USE": 1,
             "TERRAIN_ENABLE": 1,
         })
         self.reboot_sitl()
@@ -3742,7 +3747,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.progress("# Vehicle armed with terrain db disabled")
 
         # make sure we can't arm with terrain db enabled and no rangefinder in us
-        self.set_parameter("WPNAV_RFND_USE", 0)
+        self.set_parameter("WP_RFND_USE", 0)
         self.assert_prearm_failure("terrain disabled")
 
         self.context_pop()
@@ -4616,9 +4621,9 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         tolerance = 0.5
         self.load_mission("copter_rtl_speed.txt")
         self.set_parameters({
-            'WPNAV_ACCEL': wpnav_accel_mss * 100,
+            'WP_ACC': wpnav_accel_mss,
             'RTL_SPEED_MS': rtl_speed_ms,
-            'WPNAV_SPEED': wpnav_speed_ms * 100,
+            'WP_SPD': wpnav_speed_ms,
         })
         self.change_mode('LOITER')
         self.wait_ready_to_arm()
@@ -4757,8 +4762,8 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.set_parameter("TERRAIN_ENABLE", 0)
         self.fly_mission("wp.txt")
 
-    def WPNAV_SPEED(self):
-        '''ensure resetting WPNAV_SPEED during a mission works'''
+    def WP_SPEED(self):
+        '''ensure resetting WP_SPD during a mission works'''
 
         loc = self.poll_home_position()
         alt = 20
@@ -4776,18 +4781,18 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
 
         self.upload_simple_relhome_mission(items)
 
-        start_speed_ms = self.get_parameter('WPNAV_SPEED') / 100.0
+        start_speed_ms = self.get_parameter('WP_SPD')
 
         self.takeoff(20)
         self.change_mode('AUTO')
         self.wait_groundspeed(start_speed_ms-1, start_speed_ms+1, minimum_duration=10)
 
         for speed_ms in 7, 8, 7, 8, 9, 10, 11, 7:
-            self.set_parameter('WPNAV_SPEED', speed_ms*100)
+            self.set_parameter('WP_SPD', speed_ms)
             self.wait_groundspeed(speed_ms-1, speed_ms+1, minimum_duration=10)
         self.do_RTL()
 
-    def WPNAV_SPEED_UP(self):
+    def WP_SPEED_UP(self):
         '''Change speed (up) during mission'''
 
         items = []
@@ -4799,7 +4804,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
 
         self.upload_simple_relhome_mission(items)
 
-        start_speed_ms = self.get_parameter('WPNAV_SPEED_UP') / 100.0
+        start_speed_ms = self.get_parameter('WP_SPD_UP')
 
         minimum_duration = 5
 
@@ -4808,11 +4813,11 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.wait_climbrate(start_speed_ms-1, start_speed_ms+1, minimum_duration=minimum_duration)
 
         for speed_ms in 7, 8, 7, 8, 6, 2:
-            self.set_parameter('WPNAV_SPEED_UP', speed_ms*100)
+            self.set_parameter('WP_SPD_UP', speed_ms)
             self.wait_climbrate(speed_ms-1, speed_ms+1, minimum_duration=minimum_duration)
         self.do_RTL(timeout=240)
 
-    def WPNAV_SPEED_DN(self):
+    def WP_SPEED_DN(self):
         '''Change speed (down) during mission'''
 
         items = []
@@ -4829,11 +4834,11 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.takeoff(500, timeout=70)
         self.change_mode('AUTO')
 
-        start_speed_ms = self.get_parameter('WPNAV_SPEED_DN') / 100.0
+        start_speed_ms = self.get_parameter('WP_SPD_DN')
         self.wait_climbrate(-start_speed_ms-1, -start_speed_ms+1, minimum_duration=minimum_duration)
 
         for speed_ms in 7, 8, 7, 8, 6, 2:
-            self.set_parameter('WPNAV_SPEED_DN', speed_ms*100)
+            self.set_parameter('WP_SPD_DN', speed_ms)
             self.wait_climbrate(-speed_ms-1, -speed_ms+1, minimum_duration=minimum_duration)
         self.do_RTL()
 
@@ -5179,9 +5184,9 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             self.wait_disarmed()
 
         # test the defaults.  By default LAND_SPD_HIGH_MS is 0 so
-        # WPNAV_SPEED_DN is used
+        # WP_SPD_DN is used
         check_landing_speeds(
-            self.get_parameter("WPNAV_SPEED_DN") / 100,  # cm/s -> m/s
+            self.get_parameter("WP_SPD_DN"),
             self.get_parameter("LAND_SPD_MS"),
             self.get_parameter("LAND_ALT_LOW_M")
         )
@@ -9247,9 +9252,6 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         original_elec_m = self.wait_message_field_values('BATTERY_STATUS', {
             "charge_state": mavutil.mavlink.MAV_BATTERY_CHARGE_STATE_OK
         }, instance=elec_battery_instance)
-        original_fuel_m = self.wait_message_field_values('BATTERY_STATUS', {
-            "charge_state": mavutil.mavlink.MAV_BATTERY_CHARGE_STATE_OK
-        }, instance=fuel_battery_instance)
 
         if original_elec_m.battery_remaining < 90:
             raise NotAchievedException("Bad original percentage")
@@ -9262,12 +9264,15 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.start_subsubtest("Protocol %i: Checking original voltage (fuel)" % proto_ver)
         # ArduPilot spits out essentially uninitialised battery
         # messages until we read things from the battery:
+        original_fuel_m = self.wait_message_field_values('BATTERY_STATUS', {
+            "charge_state": mavutil.mavlink.MAV_BATTERY_CHARGE_STATE_OK
+        }, instance=fuel_battery_instance)
         if original_fuel_m.battery_remaining <= 90:
             raise NotAchievedException("Bad original percentage (want=>%f got %f" % (90, original_fuel_m.battery_remaining))
         self.start_subsubtest("Protocol %i: Ensure percentage is counting down" % proto_ver)
         self.wait_message_field_values('BATTERY_STATUS', {
-            "battery_remaining": original_fuel_m.battery_remaining - 1,
-        }, instance=fuel_battery_instance)
+            "battery_remaining": original_fuel_m.battery_remaining - 2,
+        }, instance=fuel_battery_instance, timeout=30)
 
         self.wait_ready_to_arm()
         self.arm_vehicle()
@@ -10662,7 +10667,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.set_parameters({
             "SERIAL4_PROTOCOL": 9,
             "RNGFND1_TYPE": rngfnd_type,
-            "WPNAV_SPEED_UP": 1000,  # cm/s
+            "WP_SPD_UP": 10,  # m/s
         })
         self.customise_SITL_commandline([
             f"--serial4=sim:{simname}",
@@ -10750,7 +10755,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.set_parameters({
             "SERIAL4_PROTOCOL": 9,
             "RNGFND1_TYPE": 19,  # BenewakeTF02
-            "WPNAV_SPEED_UP": 1000,  # cm/s
+            "WP_SPD_UP": 10,  # m/s
         })
         self.customise_SITL_commandline([
             "--serial4=sim:benewake_tf02",
@@ -10835,7 +10840,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         # >327m range change this to use that driver
         self.set_parameters({
             "RNGFND1_TYPE": 100,  # SITL
-            "WPNAV_SPEED_UP": 1000,  # cm/s
+            "WP_SPD_UP": 10,    # m/s
             "RNGFND1_MAX": 7000,  # metres
         })
         self.reboot_sitl()
@@ -14437,6 +14442,7 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             #                                      N   E  U
             (mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,   0, 0, 10),
             (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 20, 0, 10),
+            self.create_MISSION_ITEM_INT(mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, p1=1),
             (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 40, 0, 10),
             (mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 120, 0, 10),
         ])
@@ -15020,8 +15026,8 @@ RTL_ALT_M 111
         self.wait_current_waypoint(2)
 
         self.progress("Waiting for vehicle to get up to speed")
-        wpnav_speed = self.get_parameter('WPNAV_SPEED')
-        self.wait_groundspeed(wpnav_speed/100-0.1, wpnav_speed/100+0.1)
+        wp_speed = self.get_parameter('WP_SPD')
+        self.wait_groundspeed(wp_speed-0.1, wp_speed+0.1)
 
         rtl_start_pos = self.get_local_position_NED()
 
@@ -15802,10 +15808,10 @@ return update, 1000
             self.DO_CHANGE_SPEED,
             self.MISSION_START,
             self.AUTO_LAND_TO_BRAKE,
-            self.WPNAV_SPEED,
+            self.WP_SPEED,
             self.RTLStoppingDistanceSpeed,
-            self.WPNAV_SPEED_UP,
-            self.WPNAV_SPEED_DN,
+            self.WP_SPEED_UP,
+            self.WP_SPEED_DN,
             self.DO_WINCH,
             self.SensorErrorFlags,
             self.GPSForYaw,
